@@ -11,7 +11,7 @@ object App {
   def main(args: Array[String]):Unit = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
-    val conf = new SparkConf().setAppName("NameOfApp").setMaster("local[4]")
+    val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
     println("Hello World!");    //; is optional
 
