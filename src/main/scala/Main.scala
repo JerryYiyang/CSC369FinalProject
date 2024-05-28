@@ -15,12 +15,13 @@ object App {
     val sc = new SparkContext(conf)
     println("Hello World!");    //; is optional
 
-    val filePath = "AllCombined.txt"
+    val filePath = "test.txt"
 
     // Read the file contents as a string
     val fileString = Source.fromFile(filePath).mkString
 
     val temp = preprocess(fileString)
+
 
   }
 
@@ -28,5 +29,12 @@ object App {
 
 
 
+  }
+
+  // gets top 500 used words
+  def wordCount(tokenizedList: List[List[String]]): List[(String, Int)] = {
+    val allWords = tokenizedList.flatten
+    val wordCounts = allWords.groupBy(x => x).mapValues(_.size)
+    wordCounts.toList.sortBy(-_._2).take(500)
   }
 }
