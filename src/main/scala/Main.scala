@@ -23,6 +23,7 @@ object App {
 
     preprocess(fileList)
 
+
   }
 
   def preprocess(fileList: List[String]): List[List[String]] = {
@@ -61,5 +62,12 @@ object App {
     }
 
 
+  }
+
+  // gets top 500 used words
+  def wordCount(tokenizedList: List[List[String]]): List[(String, Int)] = {
+    val allWords = tokenizedList.flatten
+    val wordCounts = allWords.groupBy(x => x).mapValues(_.size)
+    wordCounts.toList.sortBy(-_._2).take(500)
   }
 }
