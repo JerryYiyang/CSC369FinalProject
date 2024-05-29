@@ -1,11 +1,12 @@
 package example
 import org.apache.spark.SparkContext._
 import scala.io._
-import org.apache.spark.{ SparkConf, SparkContext }
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd._
 import org.apache.log4j.Logger
 import org.apache.log4j.Level
 import scala.collection._
+import scala.collection.immutable.List
 
 object App {
   import scala.io.Source
@@ -21,8 +22,13 @@ object App {
     val fileList = Source.fromFile(filePath).getLines.toList
 
 
-    preprocess(fileList)
+    val processedArticles = preprocess(fileList)
 
+    val idf = top500(processedArticles)
+    val result = processedArticles.map { article =>
+      val tf = docTF(article)
+      tfidf(tf, idf)
+    }
 
   }
 
@@ -65,9 +71,24 @@ object App {
   }
 
   // gets top 500 used words
-  def wordCount(tokenizedList: List[List[String]]): List[(String, Int)] = {
+  def top500(tokenizedList: List[List[String]]): List[(String, Double)] = {
     val allWords = tokenizedList.flatten
-    val wordCounts = allWords.groupBy(x => x).mapValues(_.size)
+    val wordCounts = allWords.groupBy(x => x).mapValues(_.size.toDouble)
     wordCounts.toList.sortBy(-_._2).take(500)
+  }
+
+  // gets the tf of each doc
+  def docTF(article: List[String]): List[(String, Double)] = {
+    val counts = article.groupBy(x => x).mapValues(_.size).toList
+    val totalWords = article.length.toDouble
+    counts.map{case (word, count) => (word, count / totalWords)}
+  }
+
+  // calculates the tfidf
+  def tfidf(docTF: List[(String, Double)], top500: List[(String, Double)]): List[Double] = {
+    val idfMap = top500.toMap
+    docTF.map{case (word, tf) =>
+      val idf = idfMap.getOrElse(word, 0.0)
+      tf * idf}
   }
 }
