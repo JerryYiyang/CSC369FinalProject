@@ -33,9 +33,8 @@ object App {
       val tf = docTF(sc, article)
       tfidf(sc, tf, idf)
     }
-    //result.foreach(println)
     val clusterIndexes = kMeansCluster(sc, k, result)
-    val articleNames = getArticleNames(processedArticles)
+    //val articleNames = getArticleNames(processedArticles)
     //clusterPrinter(clusterIndexes, articleNames,k)
   }
 
@@ -63,43 +62,38 @@ object App {
   }
 
   def preprocess(fileList: List[String]): List[List[String]] = {
-    val punctuation = List(".", ",", "!", "?", ":", ";", "/", '{', '}', '[', ']', '(', '"', ''')
-    val pw = new PrintWriter(new File("hello.txt"))
+    val punctuation = List(".", ",", "!", "?", ":", ";", "/", '{', '}', '[', ']', '(', '"', "'")
+    var totalList = List[List[String]]()
+    var indexList = List[String]()
     var pastFirst = false
-    try {
-      var totalList = List[List[String]]()
-      var indexList = List[String]()
-      for (i <- 0 until fileList.length) {
-        val element = fileList(i)
-        if (element.nonEmpty) {
-          if ((!punctuation.contains(element.takeRight(1))) && (element.takeRight(1).head != '"' && element.takeRight(1).head != ''') && (element.head >= 'A' && element.head <= 'Z')) {
-            if (pastFirst) {
-              totalList = totalList :+ indexList
-              indexList = List()
-            }
-            indexList = indexList :+ element
-            pastFirst = true
-          } else {
-            indexList = indexList ++ element.split("""\s|\.""").toList
-          }
 
-          //println(totalList.toString())
+    for (element <- fileList) {
+      if (element.nonEmpty) {
+        if ((!punctuation.contains(element.takeRight(1))) &&
+          (element.takeRight(1).head != '"' && element.takeRight(1).head != '\'') &&
+          (element.head >= 'A' && element.head <= 'Z')) {
+          if (pastFirst) {
+            totalList = totalList :+ indexList
+            indexList = List()
+          }
+          indexList = indexList :+ element.toLowerCase
+          pastFirst = true
+        } else {
+          indexList = indexList ++ element.toLowerCase.split("""[\s\.]""").filter(_.nonEmpty).toList
         }
       }
-//      for (j <- 0 until totalList.length) {
-//        println("hit")
-//        println(totalList(j))
-//      }
-
-      totalList
     }
+    if (indexList.nonEmpty) {
+      totalList = totalList :+ indexList
+    }
+    totalList
   }
 
   // gets top 500 used words
   def top500(sc: SparkContext, tokenizedList: List[List[String]]): List[(String, Double)] = {
     val tokensRDD = sc.parallelize(tokenizedList)
     val allWordsRDD = tokensRDD.flatMap(identity)
-    val wordCountsRDD = allWordsRDD.map((_, 1)).reduceByKey(_ + _)
+    val wordCountsRDD = allWordsRDD.map(x => (x, 1)).reduceByKey(_ + _)
     val top500Words = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(500)
     top500Words.toList
   }
@@ -118,8 +112,8 @@ object App {
     val result = docTF.map { case (word, tf) =>
       val idf = idfMap.value.getOrElse(word, 0.0)
       tf * idf
-    }
-    result.collect().toList
+    }.collect().toList
+    result.padTo(500, 0.0)
   }
 
   def dotProduct(v1: List[Double], v2: List[Double]): Double = {
