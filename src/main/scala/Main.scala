@@ -20,6 +20,7 @@ object App {
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
     val filePath = "test.txt" //test path
+    val k = 20
 
     // Read the file contents as a a list of strings
     val fileList = Source.fromFile(filePath).getLines.toList
@@ -27,11 +28,37 @@ object App {
 
     val processedArticles = preprocess(fileList)
 
-    val idf = top500(processedArticles)
+    val idf = top500(sc, processedArticles)
     val result = processedArticles.map { article =>
-      val tf = docTF(article)
-      tfidf(tf, idf)
+      val tf = docTF(sc, article)
+      tfidf(sc, tf, idf)
     }
+    //result.foreach(println)
+    val clusterIndexes = kMeansCluster(sc, k, result)
+    val articleNames = getArticleNames(processedArticles)
+    //clusterPrinter(clusterIndexes, articleNames,k)
+  }
+
+  def getArticleNames(allData: List[List[String]]): List[String]={
+    allData.map(x => x(1))
+  }
+
+  def clusterPrinter(clusterIndexes: List[Int], articles: List[String], k: Int): Unit={
+    if (clusterIndexes.length != articles.length) {
+      throw new IllegalArgumentException("Input lists must have the same length")
+    }
+
+    // Use zip to combine elements with the same index
+    val zippedData = clusterIndexes.zip(articles)
+
+    // Group data by the integer using groupBy
+    val groupedByInt = zippedData.groupBy { case (int, _) => int % k }
+
+    // Map each group to a list of strings
+    groupedByInt.map { case (_, group) => group.map(_._2).toList }.toList.foreach { group =>
+      println(group.mkString(", "))
+    }
+
 
   }
 
@@ -69,26 +96,30 @@ object App {
   }
 
   // gets top 500 used words
-  def top500(tokenizedList: List[List[String]]): List[(String, Double)] = {
-    val allWords = tokenizedList.flatten
-    val wordCounts = allWords.groupBy(x => x).mapValues(_.size.toDouble)
-    wordCounts.toList.sortBy(-_._2).take(500)
+  def top500(sc: SparkContext, tokenizedList: List[List[String]]): List[(String, Double)] = {
+    val tokensRDD = sc.parallelize(tokenizedList)
+    val allWordsRDD = tokensRDD.flatMap(identity)
+    val wordCountsRDD = allWordsRDD.map((_, 1)).reduceByKey(_ + _)
+    val top500Words = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(500)
+    top500Words.toList
   }
 
   // gets the tf of each doc
-  def docTF(article: List[String]): List[(String, Double)] = {
-    val counts = article.groupBy(x => x).mapValues(_.size).toList
+  def docTF(sc: SparkContext, article: List[String]): RDD[(String, Double)] = {
+    val doc = sc.parallelize(article)
+    val wordCountsRDD = doc.map((_, 1)).reduceByKey(_ + _)
     val totalWords = article.length.toDouble
-    counts.map { case (word, count) => (word, count / totalWords) }
+    val tfRDD = wordCountsRDD.mapValues(_.toDouble / totalWords)
+    tfRDD
   }
 
-  // calculates the tfidf
-  def tfidf(docTF: List[(String, Double)], top500: List[(String, Double)]): List[Double] = {
-    val idfMap = top500.toMap
-    docTF.map { case (word, tf) =>
-      val idf = idfMap.getOrElse(word, 0.0)
+  def tfidf(sc: SparkContext, docTF: RDD[(String, Double)], top500: List[(String, Double)]): List[Double] = {
+    val idfMap = sc.broadcast(top500.toMap)
+    val result = docTF.map { case (word, tf) =>
+      val idf = idfMap.value.getOrElse(word, 0.0)
       tf * idf
     }
+    result.collect().toList
   }
 
   def dotProduct(v1: List[Double], v2: List[Double]): Double = {
@@ -117,32 +148,43 @@ object App {
     averages
   }
 
-  def kMeansCluster(vectorList: List[List[Double]]): Unit = {
-    val k = 20
+  def kMeansCluster(sc: SparkContext, k: Int, vectorList: List[List[Double]]) = {
     var hasClusterChange = true
-    var centroids = Random.shuffle(vectorList).take(k)
+    val centroids = sc.parallelize(Random.shuffle(vectorList).take(k))
+    var assignedClusters = List[Unit]()
 
-    while(hasClusterChange){
+    do {
       hasClusterChange = false
-      val assignedClusters: List[Int] = vectorList.zipWithIndex.map { case (point, pointIndex) =>
-        val closestCentroidIndex = centroids.zipWithIndex.minBy { case (centroid, _) => getCosineDistance(point, centroid) }._2
-        val previousCluster = if (assignedClusters.nonEmpty) assignedClusters(pointIndex) else -1 // Default to -1 if no previous assignment
-        if (closestCentroidIndex != previousCluster) {
-          hasClusterChange = true
-        }
-        closestCentroidIndex
-      }
-      for (cluster <- 0 until k) {
-        val assignedPoints = vectorList.filter(point => assignedClusters(vectorList.indexOf(point)) == cluster)
-        if (assignedPoints.nonEmpty) {
-          centroids = centroids.updated(cluster, averageVector(assignedPoints))
-        }
-      }
 
-    }
+      // Collect assignedClusters after the loop for final assignments
+      val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
+      val centroidZip = centroids.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
+      println(pointZip.collect().toList(0)._1.length)
+      println(centroidZip.collect().toList(0)._1.length)
 
+      //pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2))).groupByKey().sortBy(x => x._2).foreach(println(_))
 
+//      assignedClusters = sc.parallelize(vectorList).zipWithIndex().map({ case (point, pointIndex) =>  // [article1,
+//        val closestCentroidIndex = centroids.zipWithIndex().map({ case (centroid, centroidIndex) => (getCosineDistance(point, centroid), centroidIndex)}).collect().foreach(println(_))
+//
+////        val previousCluster = if (assignedClusters.nonEmpty) assignedClusters(pointIndex.toInt) else -1 // Default to -1 if no previous assignment
+////        if (closestCentroidIndex != previousCluster) {
+////          hasClusterChange = true
+////        }
+//        closestCentroidIndex
+//      }).collect().toList
 
+//      for (cluster <- 0 until k) {
+//        val assignedPoints = sc.parallelize(vectorList).filter(point => assignedClusters(vectorList.indexOf(point)) == cluster).collect().toList
+//        if (assignedPoints.nonEmpty) {
+//          centroids = centroids.updated(cluster, averageVector(assignedPoints))
+//        }
+//      }
+    } while (hasClusterChange)
+
+    // Return assignedClusters after the loop completes
+    //assignedClusters
   }
+
 }
 
