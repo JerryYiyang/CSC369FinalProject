@@ -114,7 +114,7 @@ object App {
       val idf = idfMap.value.getOrElse(word, 0.0)
       tf * idf
     }.collect().toList
-    result.padTo(500, 0.0)
+    result.padTo(500, 0.0).take(500)
   }
 
   def dotProduct(v1: List[Double], v2: List[Double]): Double = {
