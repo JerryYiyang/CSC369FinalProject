@@ -7,6 +7,7 @@ import org.apache.log4j.Logger
 import org.apache.log4j.Level
 import scala.collection._
 import scala.collection.immutable.List
+import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
 object App {
@@ -144,19 +145,36 @@ object App {
 
   def kMeansCluster(sc: SparkContext, k: Int, vectorList: List[List[Double]]) = {
     var hasClusterChange = true
-    val centroids = sc.parallelize(Random.shuffle(vectorList).take(k))
-    var assignedClusters = List[Unit]()
+
+    vectorList.map(x => x.length).foreach(println(_))
+    var centroids = Random.shuffle(vectorList).take(k).toBuffer
 
     do {
       hasClusterChange = false
+      val centroidsRDD = sc.parallelize(centroids)
 
       // Collect assignedClusters after the loop for final assignments
       val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
-      val centroidZip = centroids.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
-      println(pointZip.collect().toList(0)._1.length)
-      println(centroidZip.collect().toList(0)._1.length)
+      val centroidZip = centroidsRDD.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
+      //println(pointZip.collect().toList.length)
+      //println(centroidZip.collect().toList(0)._1.length)
 
-      //pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2))).groupByKey().sortBy(x => x._2).foreach(println(_))
+      val assignedClusters = pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2, x._1._1))).groupByKey().map({ case (key, buffer) =>
+        //(pointIndex, (cosineDistance, clusterIndex))
+        val (closestCluster, pointVector) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._3) // Convert to list and sort by cosine distance
+        (closestCluster, pointVector)
+      }) // (clusterNum, pointVector)
+
+      val newCentroidPoints = assignedClusters.groupByKey().map { case (key, vectors) =>
+        // Calculate the average of each element position across all vectors
+        val vectorLength = vectors.head.length // Assuming all vectors have the same length
+        val averages = (0 until vectorLength).map { i =>
+          vectors.map(_(i)).sum / vectors.size.toDouble // Average each element position
+        }
+        (key.toInt, averages.toList) // Convert averages to list
+      }.collect().toList
+      newCentroidPoints.foreach({case (key, vector) => centroids(key) = vector})
+
 
 //      assignedClusters = sc.parallelize(vectorList).zipWithIndex().map({ case (point, pointIndex) =>  // [article1,
 //        val closestCentroidIndex = centroids.zipWithIndex().map({ case (centroid, centroidIndex) => (getCosineDistance(point, centroid), centroidIndex)}).collect().foreach(println(_))
