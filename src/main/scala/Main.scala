@@ -64,6 +64,9 @@ object App {
 
   def preprocess(fileList: List[String]): List[List[String]] = {
     val punctuation = List(".", ",", "!", "?", ":", ";", "/", '{', '}', '[', ']', '(', '"', "'")
+    val stopWords = List("a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
+      "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these", "they", "this", "to",
+      "was", "will", "wit")
     var totalList = List[List[String]]()
     var indexList = List[String]()
     var pastFirst = false
@@ -80,7 +83,8 @@ object App {
           indexList = indexList :+ element.toLowerCase
           pastFirst = true
         } else {
-          indexList = indexList ++ element.toLowerCase.split("""[\s\.]""").filter(_.nonEmpty).toList
+          indexList = indexList ++ element.toLowerCase.split("""[\s\.]""").
+            filter(word => word.nonEmpty && !stopWords.contains(word)).toList
         }
       }
     }
@@ -178,23 +182,6 @@ object App {
         hasClusterChange = true
         centroids(key) = vector
       }})
-
-//      assignedClusters = sc.parallelize(vectorList).zipWithIndex().map({ case (point, pointIndex) =>  // [article1,
-//        val closestCentroidIndex = centroids.zipWithIndex().map({ case (centroid, centroidIndex) => (getCosineDistance(point, centroid), centroidIndex)}).collect().foreach(println(_))
-//
-////        val previousCluster = if (assignedClusters.nonEmpty) assignedClusters(pointIndex.toInt) else -1 // Default to -1 if no previous assignment
-////        if (closestCentroidIndex != previousCluster) {
-////          hasClusterChange = true
-////        }
-//        closestCentroidIndex
-//      }).collect().toList
-
-//      for (cluster <- 0 until k) {
-//        val assignedPoints = sc.parallelize(vectorList).filter(point => assignedClusters(vectorList.indexOf(point)) == cluster).collect().toList
-//        if (assignedPoints.nonEmpty) {
-//          centroids = centroids.updated(cluster, averageVector(assignedPoints))
-//        }
-//      }
     } while (hasClusterChange)
 
     val centroidsRDD = sc.parallelize(centroids)
@@ -208,6 +195,5 @@ object App {
     assignedClusters.foreach(println(_))
     assignedClusters //(clusterIndex, pointIndex)
   }
-
 }
 
