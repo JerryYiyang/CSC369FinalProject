@@ -147,14 +147,15 @@ object App {
     var hasClusterChange = true
 
     vectorList.map(x => x.length).foreach(println(_))
-    var centroids = Random.shuffle(vectorList).take(k).toBuffer
+    val centroids = Random.shuffle(vectorList).take(k).toBuffer
+    val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
 
     do {
       hasClusterChange = false
       val centroidsRDD = sc.parallelize(centroids)
 
       // Collect assignedClusters after the loop for final assignments
-      val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
+
       val centroidZip = centroidsRDD.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
       //println(pointZip.collect().toList.length)
       //println(centroidZip.collect().toList(0)._1.length)
@@ -173,8 +174,10 @@ object App {
         }
         (key.toInt, averages.toList) // Convert averages to list
       }.collect().toList
-      newCentroidPoints.foreach({case (key, vector) => centroids(key) = vector})
-
+      newCentroidPoints.foreach({ case (key, vector) => if (centroids(key) != vector) {
+        hasClusterChange = true
+        centroids(key) = vector
+      }})
 
 //      assignedClusters = sc.parallelize(vectorList).zipWithIndex().map({ case (point, pointIndex) =>  // [article1,
 //        val closestCentroidIndex = centroids.zipWithIndex().map({ case (centroid, centroidIndex) => (getCosineDistance(point, centroid), centroidIndex)}).collect().foreach(println(_))
@@ -194,8 +197,16 @@ object App {
 //      }
     } while (hasClusterChange)
 
-    // Return assignedClusters after the loop completes
-    //assignedClusters
+    val centroidsRDD = sc.parallelize(centroids)
+    val centroidZip = centroidsRDD.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
+
+    val assignedClusters = pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2, x._1._2))).groupByKey().map({ case (key, buffer) =>
+      //(pointIndex, (cosineDistance, clusterIndex))
+      val (closestCluster, pointIndex) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._3) // Convert to list and sort by cosine distance
+      (closestCluster, pointIndex)
+    }).collect()
+    assignedClusters.foreach(println(_))
+    assignedClusters //(clusterIndex, pointIndex)
   }
 
 }
