@@ -6,6 +6,7 @@ import org.apache.spark.rdd._
 import org.apache.log4j.Logger
 import org.apache.log4j.Level
 import scala.collection._
+import java.io.PrintWriter
 import scala.collection.immutable.List
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
@@ -21,14 +22,14 @@ object App {
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
     val filePath = "AllCombined.txt" //test path
-    val k = 20
+    val k = 100
 
     // Read the file contents as a a list of strings
     val fileList = Source.fromFile(filePath).getLines.toList
 
 
     val processedArticles = preprocess(fileList)
-    println("finished preprocessing")
+    println("finished preprocess")
     //processedArticles.foreach(println)
     val idf = top500(sc, processedArticles)
     println("finished idf")
@@ -42,59 +43,41 @@ object App {
     //clusterPrinter(clusterIndexes, articleNames,k)
   }
 
-  def getArticleNames(allData: List[List[String]]): List[String]={
-    allData.map(x => x(1))
-  }
-
-  def clusterPrinter(clusterIndexes: List[Int], articles: List[String], k: Int): Unit={
-    if (clusterIndexes.length != articles.length) {
-      throw new IllegalArgumentException("Input lists must have the same length")
-    }
-
-    // Use zip to combine elements with the same index
-    val zippedData = clusterIndexes.zip(articles)
-
-    // Group data by the integer using groupBy
-    val groupedByInt = zippedData.groupBy { case (int, _) => int % k }
-
-    // Map each group to a list of strings
-    groupedByInt.map { case (_, group) => group.map(_._2).toList }.toList.foreach { group =>
-      println(group.mkString(", "))
-    }
-
-
-  }
-
   def preprocess(fileList: List[String]): List[List[String]] = {
-    val punctuation = List(".", ",", "!", "?", ":", ";", "/", '{', '}', '[', ']', '(', '"', "'")
     val stopWords = List("a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
       "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these", "they", "this", "to",
       "was", "will", "wit")
+    var counter = 0
     var totalList = List[List[String]]()
-    var indexList = List[String]()
-    var pastFirst = false
-
+    var currentArticle = ListBuffer[String]()
     for (element <- fileList) {
-      if (element.nonEmpty) {
-        val wordCount = element.split("""[\s\.]""").length
-        if ((element.takeRight(1).head != '"' && element.takeRight(1).head != '\'') && (element.head >= 'A' && element.head <= 'Z') && (wordCount <= 5)) {
-          if (pastFirst) {
-            totalList = totalList :+ indexList
-            indexList = List()
+      if (element.trim.nonEmpty) {
+        val isTitle = element.head.isUpper && element.split("\\s+").length <= 5 && !element.exists(ch => ch == '-' || ch == ':')
+        if (isTitle) {
+          if (currentArticle.nonEmpty) {
+            totalList = totalList :+ currentArticle.toList
+            counter += 1
+            if(counter >= 5000 ){return totalList}
+            currentArticle.clear()
           }
-          indexList = indexList :+ element.toLowerCase
-          pastFirst = true
+          currentArticle += element.toLowerCase
         } else {
-          indexList = indexList ++ element.toLowerCase.split("""[\s\.]""").
-            filter(word => word.nonEmpty && !stopWords.contains(word)).toList
+          val processedWords = element.toLowerCase.split("\\s+")
+            .flatMap(word => word.split("""[\.\,\!\?\:\;\/\{\}\[\]\(\)"']"""))
+            .filter(word => word.nonEmpty && !stopWords.contains(word))
+          currentArticle ++= processedWords
         }
       }
     }
-    if (indexList.nonEmpty) {
-      totalList = totalList :+ indexList
+    if (currentArticle.nonEmpty) {
+      totalList = totalList :+ currentArticle.toList
     }
+    totalList = totalList.filter(_.nonEmpty)
     totalList
   }
+
+
+
 
   // gets top 500 used words
   def top500(sc: SparkContext, tokenizedList: List[List[String]]): List[(String, Double)] = {
@@ -143,21 +126,13 @@ object App {
       (magnitude(v1) * magnitude(v2)))
   }
 
-  def greatestCosineDistance(referenceVector: List[Double], listOfVectors: List[List[Double]]): Double = {
-    listOfVectors.map(vector => getCosineDistance(referenceVector, vector)).max
-  }
 
-  def averageVector(points: List[List[Double]]): List[Double] = {
-    val dimensions = points.head.size
-    val averages = (0 until dimensions).map(dim => points.map(_(dim)).sum / points.size).toList
-    averages
-  }
 
   def kMeansCluster(sc: SparkContext, k: Int, vectors: List[(List[Double], String)]) = {
     var hasClusterChange = true
     val vectorNames = sc.parallelize(vectors) //(Vector, Name)
     val vectorList = vectors.map { case (v, _) => v }
-    vectorList.map(x => x.length).foreach(println(_))
+    //vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
     val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
     var i = 0
@@ -189,6 +164,8 @@ object App {
       }.collect().toList
       newCentroidPoints.foreach({ case (key, vector) => if (centroids(key) != vector) {
         hasClusterChange = true
+        println(key)
+        println(getCosineDistance(centroids(key),vector))
         centroids(key) = vector
       }})
     } while (hasClusterChange)
@@ -201,8 +178,10 @@ object App {
       val (closestCluster, pointVector) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._4) // Convert to list and sort by cosine distance
       (pointVector, closestCluster)
     })
-    assignedClusters.join(vectorNames).map(x=>x._2).sortByKey().collect.foreach(println(_))
-    assignedClusters
+    val output = assignedClusters.join(vectorNames).map(x=>x._2).reduceByKey(_ + ", " + _).sortByKey().collect()
+    val pw = new PrintWriter(new java.io.File("output.txt"))
+    output.foreach(line => pw.println(line))
+    pw.close()
   }
 }
 
