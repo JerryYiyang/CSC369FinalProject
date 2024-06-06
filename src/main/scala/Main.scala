@@ -34,8 +34,8 @@ object App {
       val tf = docTF(sc, article)
       tfidf(sc, tf, idf)
     }
-    result.foreach(println)
-    //val clusterIndexes = kMeansCluster(sc, k, result)
+    //result.foreach(println)
+    val clusterIndexes = kMeansCluster(sc, k, result)
     //val articleNames = getArticleNames(processedArticles)
     //clusterPrinter(clusterIndexes, articleNames,k)
   }
@@ -113,7 +113,7 @@ object App {
     (article(0), tfRDD)
   }
 
-  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top500: List[(String, Double)]): (String, List[Double]) = {
+  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top500: List[(String, Double)]): (List[Double], String) = {
     val idfMap = sc.broadcast(top500.toMap)
     val tfVals = docTF._2
     val articleName = docTF._1
@@ -123,7 +123,7 @@ object App {
       tf * idf
     }.collect().toList
     val res = result.padTo(500, 0.0).take(500)
-    (articleName, res)
+    (res, articleName)
   }
 
   def dotProduct(v1: List[Double], v2: List[Double]): Double = {
@@ -152,10 +152,10 @@ object App {
     averages
   }
 
-  def kMeansCluster(sc: SparkContext, k: Int, vectors: List[(String, List[Double])]) = {
+  def kMeansCluster(sc: SparkContext, k: Int, vectors: List[(List[Double], String)]) = {
     var hasClusterChange = true
 
-    val vectorList = vectors.map { case (_, v) => v}
+    val vectorList = vectors.map { case (v, _) => v }
     vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
     val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
