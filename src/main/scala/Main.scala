@@ -57,7 +57,7 @@ object App {
           if (currentArticle.nonEmpty) {
             totalList = totalList :+ currentArticle.toList
             counter += 1
-            if(counter >= 5000 ){return totalList}
+            if(counter >= 5000){return totalList}
             currentArticle.clear()
           }
           currentArticle += element.toLowerCase
@@ -132,7 +132,6 @@ object App {
     var hasClusterChange = true
     val vectorNames = sc.parallelize(vectors) //(Vector, Name)
     val vectorList = vectors.map { case (v, _) => v }
-    //vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
     val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
     var i = 0
@@ -164,8 +163,8 @@ object App {
       }.collect().toList
       newCentroidPoints.foreach({ case (key, vector) => if (centroids(key) != vector) {
         hasClusterChange = true
-        println(key)
-        println(getCosineDistance(centroids(key),vector))
+        //println(key)
+        //println(getCosineDistance(centroids(key),vector))
         centroids(key) = vector
       }})
     } while (hasClusterChange)
