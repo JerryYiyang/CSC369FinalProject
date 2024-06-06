@@ -20,7 +20,7 @@ object App {
     Logger.getLogger("akka").setLevel(Level.OFF)
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val filePath = "AllCombined.txt" //test path
+    val filePath = "test.txt" //test path
     val k = 20
 
     // Read the file contents as a a list of strings
@@ -66,40 +66,38 @@ object App {
   }
 
   def preprocess(fileList: List[String]): List[List[String]] = {
-    val punctuation = List(".", ",", "!", "?", ":", ";", "/", '{', '}', '[', ']', '(', '"', "'")
     val stopWords = List("a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
       "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these", "they", "this", "to",
       "was", "will", "wit")
-    var totalList = List[List[String]]()
-    var indexList = List[String]()
-    var pastFirst = false
-    var counter = 0
 
+    var totalList = List[List[String]]()
+    var currentArticle = ListBuffer[String]()
     for (element <- fileList) {
-      if (element.nonEmpty) {
-        val wordCount = element.split("""[\s\.]""").length
-        if ((element.takeRight(1).head != '"' && !punctuation.contains(element.takeRight(1).head) && element.takeRight(1).head != '\'') && (element.head >= 'A' && element.head <= 'Z') && (wordCount <= 5)) {
-          if (pastFirst) {
-            totalList = totalList :+ indexList
-            indexList = List()
-            counter = counter + 1
-            if(counter >= 2000){
-              return totalList
-            }
+      if (element.trim.nonEmpty) {
+        val isTitle = element.head.isUpper && element.split("\\s+").length <= 5 && !element.exists(ch => ch == '-' || ch == ':')
+        if (isTitle) {
+          if (currentArticle.nonEmpty) {
+            totalList = totalList :+ currentArticle.toList
+            currentArticle.clear()
           }
-          indexList = indexList :+ element.toLowerCase
-          pastFirst = true
+          currentArticle += element.toLowerCase
         } else {
-          indexList = indexList ++ element.toLowerCase.split("""[\s\.]""").
-            filter(word => word.nonEmpty && !stopWords.contains(word)).toList
+          val processedWords = element.toLowerCase.split("\\s+")
+            .flatMap(word => word.split("""[\.\,\!\?\:\;\/\{\}\[\]\(\)"']"""))
+            .filter(word => word.nonEmpty && !stopWords.contains(word))
+          currentArticle ++= processedWords
         }
       }
     }
-    if (indexList.nonEmpty) {
-      totalList = totalList :+ indexList
+    if (currentArticle.nonEmpty) {
+      totalList = totalList :+ currentArticle.toList
     }
+    totalList = totalList.filter(_.nonEmpty)
     totalList
   }
+
+
+
 
   // gets top 500 used words
   def top500(sc: SparkContext, tokenizedList: List[List[String]]): List[(String, Double)] = {
@@ -204,7 +202,7 @@ object App {
       val (closestCluster, pointVector) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._4) // Convert to list and sort by cosine distance
       (pointVector, closestCluster)
     })
-    assignedClusters.join(vectorNames).map(x=>x._2).sortByKey().collect.foreach(println(_))
+    assignedClusters.join(vectorNames).map(x=>x._2).reduceByKey(_ + ", " + _).sortByKey().collect.foreach(println(_))
     assignedClusters
   }
 }
