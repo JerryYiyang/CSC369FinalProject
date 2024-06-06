@@ -20,7 +20,7 @@ object App {
     Logger.getLogger("akka").setLevel(Level.OFF)
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val filePath = "test.txt" //test path
+    val filePath = "AllCombined.txt" //test path
     val k = 20
 
     // Read the file contents as a a list of strings
@@ -28,13 +28,15 @@ object App {
 
 
     val processedArticles = preprocess(fileList)
+    println("finished preprocessing")
     //processedArticles.foreach(println)
     val idf = top500(sc, processedArticles)
+    println("finished idf")
     val result = processedArticles.map { article =>
       val tf = docTF(sc, article)
       tfidf(sc, tf, idf)
     } //(Vector, ArticleName)
-    //result.foreach(println)
+    println("finished tfidf")
     val clusterIndexes = kMeansCluster(sc, k, result)
     //val articleNames = getArticleNames(processedArticles)
     //clusterPrinter(clusterIndexes, articleNames,k)
@@ -159,8 +161,10 @@ object App {
     vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
     val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
-
+    var i = 0
     do {
+      if(i % 5 == 0){println(i)}
+      i= i+ 1
       hasClusterChange = false
       val centroidsRDD = sc.parallelize(centroids)
 
