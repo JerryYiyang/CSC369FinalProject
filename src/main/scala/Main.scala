@@ -74,9 +74,8 @@ object App {
 
     for (element <- fileList) {
       if (element.nonEmpty) {
-        if ((!punctuation.contains(element.takeRight(1))) &&
-          (element.takeRight(1).head != '"' && element.takeRight(1).head != '\'') &&
-          (element.head >= 'A' && element.head <= 'Z')) {
+        val wordCount = element.split("""[\s\.]""").length
+        if ((element.takeRight(1).head != '"' && element.takeRight(1).head != '\'') && (element.head >= 'A' && element.head <= 'Z') && (wordCount <= 5)) {
           if (pastFirst) {
             totalList = totalList :+ indexList
             indexList = List()
