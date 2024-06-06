@@ -33,7 +33,7 @@ object App {
     val result = processedArticles.map { article =>
       val tf = docTF(sc, article)
       tfidf(sc, tf, idf)
-    }
+    } //(Vector, ArticleName)
     //result.foreach(println)
     val clusterIndexes = kMeansCluster(sc, k, result)
     //val articleNames = getArticleNames(processedArticles)
@@ -154,7 +154,7 @@ object App {
 
   def kMeansCluster(sc: SparkContext, k: Int, vectors: List[(List[Double], String)]) = {
     var hasClusterChange = true
-
+    val vectorNames = sc.parallelize(vectors) //(Vector, Name)
     val vectorList = vectors.map { case (v, _) => v }
     vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
@@ -193,13 +193,13 @@ object App {
     val centroidsRDD = sc.parallelize(centroids)
     val centroidZip = centroidsRDD.zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
 
-    val assignedClusters = pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2, x._1._2))).groupByKey().map({ case (key, buffer) =>
+    val assignedClusters = pointZip.cartesian(centroidZip).map(x => (x._1._2, (getCosineDistance(x._1._1, x._2._1), x._2._2, x._1._2, x._1._1))).groupByKey().map({ case (key, buffer) =>
       //(pointIndex, (cosineDistance, clusterIndex))
-      val (closestCluster, pointIndex) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._3) // Convert to list and sort by cosine distance
-      (closestCluster, pointIndex)
-    }).collect()
-    assignedClusters.foreach(println(_))
-    assignedClusters //(clusterIndex, pointIndex)
+      val (closestCluster, pointVector) = (buffer.toList.sortBy(_._1).head._2, buffer.toList.sortBy(_._1).head._4) // Convert to list and sort by cosine distance
+      (pointVector, closestCluster)
+    })
+    assignedClusters.join(vectorNames).map(x=>x._2).sortByKey().collect.foreach(println(_))
+    assignedClusters
   }
 }
 
