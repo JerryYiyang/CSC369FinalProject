@@ -52,12 +52,14 @@ object App {
     var currentArticle = ListBuffer[String]()
     for (element <- fileList) {
       if (element.trim.nonEmpty) {
-        val isTitle = element.head.isUpper && element.split("\\s+").length <= 5 && !element.exists(ch => ch == '-' || ch == ':')
+        val isTitle = element.head.isUpper && element.split("\\s+").length <= 5 && !element.exists(
+          ch => ch == '-' || ch == ':' || ch == '>' || ch == '<' || ch == "." || ch == "_" || ch == "(" || ch == ")"
+          || ch == "!" || ch == "?" || ch == "/" || ch == "=" || ch == "," || ch == "^")
         if (isTitle) {
           if (currentArticle.nonEmpty) {
             totalList = totalList :+ currentArticle.toList
             counter += 1
-            if(counter >= 5000){return totalList}
+            if(counter >= 2500){return totalList}
             currentArticle.clear()
           }
           currentArticle += element.toLowerCase
