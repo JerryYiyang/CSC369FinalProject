@@ -31,11 +31,11 @@ object App {
     val processedArticles = preprocess(fileList)
     println("finished preprocess")
     //processedArticles.foreach(println)
-    val idf = top500(sc, processedArticles)
+    val idf = topWords(sc, processedArticles, 2000)
     println("finished idf")
     val result = processedArticles.map { article =>
       val tf = docTF(sc, article)
-      tfidf(sc, tf, idf)
+      tfidf(sc, tf, idf, 2000)
     } //(Vector, ArticleName)
     println("finished tfidf")
     val clusterIndexes = kMeansCluster(sc, k, result)
@@ -79,12 +79,12 @@ object App {
 
 
 
-  // gets top 500 used words
-  def top500(sc: SparkContext, tokenizedList: List[List[String]]): List[(String, Double)] = {
+  // gets top n used words
+  def topWords(sc: SparkContext, tokenizedList: List[List[String]], n: Int): List[(String, Double)] = {
     val tokensRDD = sc.parallelize(tokenizedList)
     val allWordsRDD = tokensRDD.flatMap(identity)
     val wordCountsRDD = allWordsRDD.map(x => (x, 1)).reduceByKey(_ + _)
-    val top500Words = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(500)
+    val top500Words = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(n)
     top500Words.toList
   }
 
@@ -97,8 +97,8 @@ object App {
     (article(0), tfRDD)
   }
 
-  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top500: List[(String, Double)]): (List[Double], String) = {
-    val idfMap = sc.broadcast(top500.toMap)
+  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top: List[(String, Double)], n: Int): (List[Double], String) = {
+    val idfMap = sc.broadcast(top.toMap)
     val tfVals = docTF._2
     val articleName = docTF._1
     val TF = sc.parallelize(tfVals)
@@ -106,7 +106,7 @@ object App {
       val idf = idfMap.value.getOrElse(word, 0.0)
       tf * idf
     }.collect().toList
-    val res = result.padTo(500, 0.0).take(500)
+    val res = result.padTo(n, 0.0).take(n)
     (res, articleName)
   }
 
