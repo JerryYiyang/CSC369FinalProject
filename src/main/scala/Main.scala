@@ -20,7 +20,7 @@ object App {
     Logger.getLogger("akka").setLevel(Level.OFF)
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val filePath = "test.txt" //test path
+    val filePath = "AllCombined.txt" //test path
     val k = 20
 
     // Read the file contents as a a list of strings
@@ -28,13 +28,15 @@ object App {
 
 
     val processedArticles = preprocess(fileList)
+    println("finished preprocess")
     //processedArticles.foreach(println)
     val idf = top500(sc, processedArticles)
+    println("finished idf")
     val result = processedArticles.map { article =>
       val tf = docTF(sc, article)
       tfidf(sc, tf, idf)
     } //(Vector, ArticleName)
-    //result.foreach(println)
+    println("finished tfidf")
     val clusterIndexes = kMeansCluster(sc, k, result)
     //val articleNames = getArticleNames(processedArticles)
     //clusterPrinter(clusterIndexes, articleNames,k)
@@ -71,14 +73,19 @@ object App {
     var totalList = List[List[String]]()
     var indexList = List[String]()
     var pastFirst = false
+    var counter = 0
 
     for (element <- fileList) {
       if (element.nonEmpty) {
         val wordCount = element.split("""[\s\.]""").length
-        if ((element.takeRight(1).head != '"' && element.takeRight(1).head != '\'') && (element.head >= 'A' && element.head <= 'Z') && (wordCount <= 5)) {
+        if ((element.takeRight(1).head != '"' && !punctuation.contains(element.takeRight(1).head) && element.takeRight(1).head != '\'') && (element.head >= 'A' && element.head <= 'Z') && (wordCount <= 5)) {
           if (pastFirst) {
             totalList = totalList :+ indexList
             indexList = List()
+            counter = counter + 1
+            if(counter >= 2000){
+              return totalList
+            }
           }
           indexList = indexList :+ element.toLowerCase
           pastFirst = true
@@ -155,7 +162,7 @@ object App {
     var hasClusterChange = true
     val vectorNames = sc.parallelize(vectors) //(Vector, Name)
     val vectorList = vectors.map { case (v, _) => v }
-    vectorList.map(x => x.length).foreach(println(_))
+    //vectorList.map(x => x.length).foreach(println(_))
     val centroids = Random.shuffle(vectorList).take(k).toBuffer
     val pointZip = sc.parallelize(vectorList).zipWithIndex().map(x => (x._1, x._2)) //[(Vector, Index)]
 
