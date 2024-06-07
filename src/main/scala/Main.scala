@@ -1,4 +1,5 @@
 package example
+import scala.math._
 import org.apache.spark.SparkContext._
 import scala.io._
 import org.apache.spark.{SparkConf, SparkContext}
@@ -12,6 +13,7 @@ import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
 object App {
+  val topN = 500
 
   import scala.io.Source
   import java.io._
@@ -21,8 +23,9 @@ object App {
     Logger.getLogger("akka").setLevel(Level.OFF)
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val filePath = "AllCombined.txt" //test path
-    val k = 100
+    val filePath = "test.txt" //test path
+    val k = 10
+
 
     // Read the file contents as a a list of strings
     val fileList = Source.fromFile(filePath).getLines.toList
@@ -31,11 +34,11 @@ object App {
     val processedArticles = preprocess(fileList)
     println("finished preprocess")
     //processedArticles.foreach(println)
-    val idf = topWords(sc, processedArticles, 2000)
+    val idf = topWords(sc, processedArticles, topN)
     println("finished idf")
     val result = processedArticles.map { article =>
       val tf = docTF(sc, article)
-      tfidf(sc, tf, idf, 2000)
+      tfidf(sc, tf, idf, topN)
     } //(Vector, ArticleName)
     println("finished tfidf")
     val clusterIndexes = kMeansCluster(sc, k, result)
@@ -59,7 +62,7 @@ object App {
           if (currentArticle.nonEmpty) {
             totalList = totalList :+ currentArticle.toList
             counter += 1
-            if(counter >= 2500){return totalList}
+            if(counter >= 5000){return totalList}
             currentArticle.clear()
           }
           currentArticle += element.toLowerCase
@@ -79,16 +82,15 @@ object App {
   }
 
 
-
-
   // gets top n used words
-  def topWords(sc: SparkContext, tokenizedList: List[List[String]], n: Int): List[(String, Double)] = {
+  def topWords(sc: SparkContext, tokenizedList: List[List[String]], n: Int): (List[(String, Double)],RDD[List[String]]) = {
     val tokensRDD = sc.parallelize(tokenizedList)
     val allWordsRDD = tokensRDD.flatMap(identity)
     val wordCountsRDD = allWordsRDD.map(x => (x, 1)).reduceByKey(_ + _)
-    val top500Words = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(n)
-    top500Words.toList
+    val topNWords = wordCountsRDD.mapValues(_.toDouble).sortBy(_._2, false).take(n)
+    (topNWords.toList, tokensRDD)
   }
+
 
   // gets the tf of an article
   def docTF(sc: SparkContext, article: List[String]): (String, List[(String, Double)]) = {
@@ -99,13 +101,30 @@ object App {
     (article(0), tfRDD)
   }
 
-  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top: List[(String, Double)], n: Int): (List[Double], String) = {
-    val idfMap = sc.broadcast(top.toMap)
+  def wordDocFreq(sc: SparkContext, tfWords: RDD[String], tokensRdd: RDD[List[String]]): RDD[(String,Int)] = {
+    val words = tfWords.map(x => (x, 0))
+    val wordTokenPairs = words.cartesian(tokensRdd)
+
+    val incrementedCounts = wordTokenPairs.map { case ((word, count), tokens) =>
+      if (tokens.contains(word)) (word, count + 1) else (word, count)
+    }
+
+    incrementedCounts.map { case (word, count) => (word, count) }
+  }
+
+  def tfidf(sc: SparkContext, docTF: (String, List[(String, Double)]), top: (List[(String, Double)],RDD[List[String]]), n: Int): (List[Double], String) = {
+    val idfMap = sc.broadcast(top._1.toMap)
+    val tfWords = sc.parallelize(top._1).map({case (x,y) => x}) //list of words in top words
+    val wordDocCount = wordDocFreq(sc, tfWords, top._2)
     val tfVals = docTF._2
     val articleName = docTF._1
     val TF = sc.parallelize(tfVals)
+    val wordCounts = wordDocCount.map { case (w, count) => (w, count) }.collectAsMap()
+
     val result = TF.map { case (word, tf) =>
-      val idf = idfMap.value.getOrElse(word, 0.0)
+      val count = wordCounts.getOrElse(word, 1) // Use 1 to avoid division by zero if word is not found
+      val logInput = topN / count.toDouble
+      val idf = math.log(logInput)
       tf * idf
     }.collect().toList
     val res = result.padTo(n, 0.0).take(n)
