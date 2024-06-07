@@ -57,7 +57,7 @@ object App {
       if (element.trim.nonEmpty) {
         val isTitle = element.head.isUpper && element.split("\\s+").length <= 5 && !element.exists(
           ch => ch == '-' || ch == ':' || ch == '>' || ch == '<' || ch == "." || ch == "_" || ch == "(" || ch == ")"
-          || ch == "!" || ch == "?" || ch == "/" || ch == "=" || ch == "," || ch == "^")
+          || ch == "!" || ch == "?" || ch == "/" || ch == "=" || ch == "," || ch == "^"|| ch == "=" || ch == "*")
         if (isTitle) {
           if (currentArticle.nonEmpty) {
             totalList = totalList :+ currentArticle.toList
