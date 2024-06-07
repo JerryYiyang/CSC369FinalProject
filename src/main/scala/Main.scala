@@ -13,7 +13,7 @@ import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
 object App {
-  val topN = 500
+  val topN = 1000
 
   import scala.io.Source
   import java.io._
@@ -23,8 +23,8 @@ object App {
     Logger.getLogger("akka").setLevel(Level.OFF)
     val conf = new SparkConf().setAppName("WordAnalysis").setMaster("local[4]")
     val sc = new SparkContext(conf)
-    val filePath = "test.txt" //test path
-    val k = 10
+    val filePath = "AllCombined.txt" //test path
+    val k = 75
 
 
     // Read the file contents as a a list of strings
